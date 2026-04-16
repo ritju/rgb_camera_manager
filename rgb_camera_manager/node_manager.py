@@ -28,6 +28,14 @@ class NodeManagerService(Node):
             SwitchResolution, 'rgb_camera_manager_server/switch_resolution', self.switch_resolution)        
 
         self.set_status(RgbCameraResolution.RESOLUTION_IDLE)
+        
+        # 服务启动时初始化启动低分辨率
+        self.set_status(RgbCameraResolution.RESOLUTION_LOW)
+        self.current_procs = [
+            subprocess.Popen(
+                ["ros2", "launch", "usb_cam", "rgb_camera_back_640x480.launch.py"]
+            )
+        ]
 
     def set_status(self, newStatus):
         self.mode = newStatus
@@ -39,6 +47,18 @@ class NodeManagerService(Node):
         self._logger.info('rgb_camera_manager server transitioned to state %d' % newStatus)
 
     def switch_resolution(self, request:SwitchResolution.Request, response:SwitchResolution.Response):
+        status_str = 'idle'
+        if request.resolution_mode == SwitchResolution.Request.RESOLUTION_IDLE:
+            status_str = 'idle'
+        elif request.resolution_mode == SwitchResolution.Request.RESOLUTION_LOW:
+            status_str = 'low'
+        elif request.resolution_mode == SwitchResolution.Request.RESOLUTION_HIGH:
+            status_str = 'high'
+        else:
+            status_str = 'idle'
+        
+        self.get_logger().info(f"Received a request for resolution {status_str}")
+        
         response.resolution_mode = request.resolution_mode
 
         if self.mode == request.resolution_mode:
