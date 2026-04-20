@@ -62,6 +62,8 @@ class NodeManagerService(Node):
         response.resolution_mode = request.resolution_mode
 
         if self.mode == request.resolution_mode:
+            self.get_logger().info(f"Current resolution is already {status_str}")
+            response.success = True
             return response
 
         self.set_status(request.resolution_mode)
