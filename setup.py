@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
                 'rgb_camera_manager = rgb_camera_manager.node_manager:main',
+                'switch_resolution_stress = rgb_camera_manager.switch_resolution_stress:main',
         ],
     },
 )
