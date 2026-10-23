@@ -17,8 +17,23 @@ SHUTDOWN_TIMEOUT = 10.0
 KILL_TIMEOUT = 2.0
 REAP_INTERVAL = 1.0
 PR_SET_CHILD_SUBREAPER = 36
+# Empirical: resolution switches closer than ~15s can OOM the host (UVC
+# REQBUFS under multi-camera load). Enforce a 10s floor; frequent switches
+# are refused with success=False instead of actually toggling.
+MIN_SWITCH_INTERVAL_SEC = 10.0
 # /proc/<pid>/stat states that cannot hold a V4L2 fd or accept signals.
 _DEAD_STATES = frozenset(('Z', 'X', 'x'))
+
+
+def _switch_too_soon(last_switch_mono, now_mono, min_interval=MIN_SWITCH_INTERVAL_SEC):
+    """True if a mode change is requested too soon after the previous one.
+
+    last_switch_mono is 0.0/None when no switch has completed yet — the
+    first real switch is always allowed.
+    """
+    if not last_switch_mono:
+        return False
+    return (now_mono - last_switch_mono) < min_interval
 
 
 def _enable_child_subreaper():
@@ -51,6 +66,8 @@ class NodeManagerService(Node):
         self.current_procs = []
         # pid -> Popen, so a global waitpid sweep can sync returncode
         self._tracked = {}
+        # Monotonic time of the last completed mode-changing switch (0 = none).
+        self._last_switch_mono = 0.0
 
         self._subreaper = _enable_child_subreaper()
         if self._subreaper:
@@ -179,6 +196,19 @@ class NodeManagerService(Node):
             response.success = True
             return response
 
+        # Rate limit: refuse mode changes closer than MIN_SWITCH_INTERVAL_SEC.
+        # Frequent switching OOMs the host (UVC/vb2); the client must retry later.
+        now_mono = time.monotonic()
+        if _switch_too_soon(self._last_switch_mono, now_mono):
+            wait_s = MIN_SWITCH_INTERVAL_SEC - (now_mono - self._last_switch_mono)
+            self.get_logger().warn(
+                f"switch_resolution refused: too soon after previous switch "
+                f"(wait {wait_s:.1f}s more, min interval "
+                f"{MIN_SWITCH_INTERVAL_SEC:.0f}s) requested={status_str}")
+            response.resolution_mode = request.resolution_mode
+            response.success = False
+            return response
+
         self.set_status(request.resolution_mode)
         self.stop_current()
 
@@ -198,13 +228,16 @@ class NodeManagerService(Node):
         if proc is not None:
             self.current_procs = [proc]
             response.success = True
+            self._last_switch_mono = time.monotonic()
         else:
             self.current_procs = []
             if want_spawn:
                 self.set_status(RgbCameraResolution.RESOLUTION_IDLE)
                 response.success = False
             else:
+                # IDLE (stop-only) is still a completed switch for rate-limiting.
                 response.success = True
+                self._last_switch_mono = time.monotonic()
         return response
 
     def _signal_group(self, pgid, sig):
