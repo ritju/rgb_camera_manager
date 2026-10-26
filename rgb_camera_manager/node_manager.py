@@ -189,11 +189,10 @@ class NodeManagerService(Node):
 
         self.get_logger().info(f"Received a request for resolution {status_str}")
 
-        response.resolution_mode = request.resolution_mode
-
         if self.mode == request.resolution_mode:
             self.get_logger().info(f"Current resolution is already {status_str}")
             response.success = True
+            response.resolution_mode = self.mode
             return response
 
         # Rate limit: refuse mode changes closer than MIN_SWITCH_INTERVAL_SEC.
@@ -205,7 +204,7 @@ class NodeManagerService(Node):
                 f"switch_resolution refused: too soon after previous switch "
                 f"(wait {wait_s:.1f}s more, min interval "
                 f"{MIN_SWITCH_INTERVAL_SEC:.0f}s) requested={status_str}")
-            response.resolution_mode = request.resolution_mode
+            response.resolution_mode = self.mode
             response.success = False
             return response
 
@@ -238,6 +237,7 @@ class NodeManagerService(Node):
                 # IDLE (stop-only) is still a completed switch for rate-limiting.
                 response.success = True
                 self._last_switch_mono = time.monotonic()
+        response.resolution_mode = self.mode
         return response
 
     def _signal_group(self, pgid, sig):
