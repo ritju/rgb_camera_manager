@@ -4,7 +4,7 @@
 Every --interval seconds the client asks rgb_camera_manager_server for the next
 resolution in --sequence and cross-checks three independent layers:
 
-1. service layer -- did the call answer in time, what did it echo back;
+1. service layer -- did the call answer in time, what running mode did it report;
 2. state layer   -- does the latched resolution_mode topic agree;
 3. device layer  -- is exactly one usb_cam node alive, who holds /dev/video*,
                     and is a frame of the requested size actually published.
@@ -407,9 +407,14 @@ class SwitchResolutionStress(Node):
         else:
             if report['success'] is not True:
                 problems.append('RESPONSE_NOT_SUCCESS: success=%r' % (report['success'],))
-            if report['echo'] != mode_name:
-                problems.append('ECHO_MISMATCH: asked %s, response says %s'
-                                % (mode_name, report['echo']))
+            # response.resolution_mode must agree with the state actually observed:
+            # the latched topic if anything published this cycle, else the pre-call state.
+            observed = (report['status_mode'] if report['status_publishes']
+                        else report['state_before'])
+            if report['echo'] != observed:
+                problems.append(
+                    'RESPONSE_MODE_MISMATCH: response says %s, observed running state %s'
+                    % (report['echo'], observed))
         if report['latency'] > args.interval:
             problems.append('SLOW_RESPONSE: %.2fs > interval %.2fs, the blocking '
                             'callback makes requests queue up'
