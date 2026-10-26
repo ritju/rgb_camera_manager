@@ -1,14 +1,25 @@
 ---
 feature: response-running-mode
-status: in-progress
+status: delivered
 updated: 2026-10-23
 branch: response-running-mode
-commits:
+commits: 0e15048..218861c
 ---
 
 # Response Reports Running Mode
 
 ## Report
+
+**What was built** — `switch_resolution` 的 `response.resolution_mode` 现在始终等于返回时刻的 `self.mode`（manager 落定状态），不再回显请求值。spawn 失败回滚路径返回 IDLE，限流拒绝路径返回切换前的旧模式；幂等命中与切换成功行为不变。`success` 语义未改。
+
+压测工具 `switch_resolution_stress.judge()` 的 `ECHO_MISMATCH`（echo vs 请求）替换为 `RESPONSE_MODE_MISMATCH`（`response.resolution_mode` vs 实际观测态：本轮有 topic 发布取 `status_mode`，否则取 `state_before`），限流拒绝不再误报，响应与实际状态不一致仍会报警。
+
+**Verification** — 测试先行：5 例对未修代码先红（限流 `2 != 1`、回滚 `2 != 0`，即回显请求值），修后全绿。`python3 -m unittest discover -s test -p 'test_*.py'` → 19/19 PASS（含 zombie-reaper 9 例）。`test_switch_rate_limit.py` 5/5 不受影响。独立 review 无 critical。
+
+**Journey log** —
+1. `self.mode` 在 `switch_resolution` 中途两处变化（`set_status(request)` 与回滚 `set_status(IDLE)`），故赋值必须放在每条 `return` 前而非入口 —— 入口赋值会读到过期值。
+2. `judge()` 的 `echo` 报告键/CSV 列名保留原名（4 处引用），仅改比较逻辑；重命名是纯 churn。
+3. 环境债（非本特性引入）：`python3 -m pytest` 因 `anyio`/`_pytest.scope` 插件冲突不可用，测试走 `unittest discover`；ament flake8/pep257 门禁同样只能经 pytest 运行，实际未强制。
 
 ## [S1] Problem
 
@@ -46,7 +57,7 @@ commits:
 
 ## Tasks
 
-- [ ] T1: `switch_resolution` 三条出口均写 `response.resolution_mode = self.mode` — acceptance: 五条返回路径（含 spawn 失败回滚、限流拒绝）响应值等于 `self.mode` 而非请求值 (covers: S2)
-- [ ] T2: `switch_resolution_stress.judge()` 以 `RESPONSE_MODE_MISMATCH` 对照实际观测态 — acceptance: 限流拒绝不产生误报；响应与 `status_mode`/`state_before` 不一致时报警 (covers: S2)
-- [ ] T3: `test/test_response_running_mode.py` 五例（限流/回滚/成功/幂等/纯停止）— acceptance: 对当前代码先红（限流+回滚），修后全绿 (covers: S2)
-- [ ] T4: 全量本地回归 `test_switch_rate_limit.py` + `test_response_running_mode.py` — acceptance: 全部通过，无新增依赖 (covers: S2; depends: T1, T3)
+- [x] T1: `switch_resolution` 三条出口均写 `response.resolution_mode = self.mode` — acceptance: 五条返回路径（含 spawn 失败回滚、限流拒绝）响应值等于 `self.mode` 而非请求值 (covers: S2)
+- [x] T2: `switch_resolution_stress.judge()` 以 `RESPONSE_MODE_MISMATCH` 对照实际观测态 — acceptance: 限流拒绝不产生误报；响应与 `status_mode`/`state_before` 不一致时报警 (covers: S2)
+- [x] T3: `test/test_response_running_mode.py` 五例（限流/回滚/成功/幂等/纯停止）— acceptance: 对当前代码先红（限流+回滚），修后全绿 (covers: S2)
+- [x] T4: 全量本地回归 `test_switch_rate_limit.py` + `test_response_running_mode.py` — acceptance: 全部通过，无新增依赖 (covers: S2; depends: T1, T3)
